@@ -257,6 +257,55 @@ class TestDelegateTask(unittest.TestCase):
             self.assertEqual(kwargs["provider"], parent.provider)
             self.assertEqual(kwargs["api_mode"], parent.api_mode)
 
+    def test_child_inherits_parent_fallback_chain(self):
+        parent = _make_mock_parent(depth=0)
+        parent._fallback_chain = [
+            {"provider": "kimi-coding", "model": "kimi-k2.5"},
+            {"provider": "openrouter", "model": "google/gemini-2.5-flash"},
+        ]
+        parent._fallback_model = parent._fallback_chain[0]
+
+        with patch("run_agent.AIAgent") as MockAgent:
+            mock_child = MagicMock()
+            MockAgent.return_value = mock_child
+
+            _build_child_agent(
+                task_index=0,
+                goal="Use fallback on rate limit",
+                context=None,
+                toolsets=None,
+                model=None,
+                max_iterations=10,
+                parent_agent=parent,
+            )
+
+        fallback_model = MockAgent.call_args.kwargs["fallback_model"]
+        self.assertEqual(fallback_model, parent._fallback_chain)
+        self.assertIsNot(fallback_model, parent._fallback_chain)
+        self.assertIsNot(fallback_model[0], parent._fallback_chain[0])
+
+    def test_child_inherits_legacy_parent_fallback_model(self):
+        parent = _make_mock_parent(depth=0)
+        parent._fallback_model = {"provider": "kimi-coding", "model": "kimi-k2.5"}
+
+        with patch("run_agent.AIAgent") as MockAgent:
+            mock_child = MagicMock()
+            MockAgent.return_value = mock_child
+
+            _build_child_agent(
+                task_index=0,
+                goal="Use legacy fallback",
+                context=None,
+                toolsets=None,
+                model=None,
+                max_iterations=10,
+                parent_agent=parent,
+            )
+
+        fallback_model = MockAgent.call_args.kwargs["fallback_model"]
+        self.assertEqual(fallback_model, parent._fallback_model)
+        self.assertIsNot(fallback_model, parent._fallback_model)
+
     def test_child_inherits_parent_print_fn(self):
         parent = _make_mock_parent(depth=0)
         sink = MagicMock()

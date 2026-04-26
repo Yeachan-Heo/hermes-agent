@@ -155,6 +155,33 @@ def _strip_blocked_tools(toolsets: List[str]) -> List[str]:
     return [t for t in toolsets if t not in blocked_toolset_names]
 
 
+def _inherit_parent_fallback_model(parent_agent):
+    """Return a sanitized copy of the parent's fallback config for a child.
+
+    ``AIAgent`` accepts either a single fallback dict or an ordered list.
+    Copy only valid dict entries so child fallback activation cannot mutate
+    parent state and mocks/missing attributes do not leak into construction.
+    """
+    chain = getattr(parent_agent, "_fallback_chain", None)
+    if isinstance(chain, list):
+        inherited_chain = [
+            dict(entry) for entry in chain
+            if (
+                isinstance(entry, dict)
+                and entry.get("provider")
+                and entry.get("model")
+            )
+        ]
+        if inherited_chain:
+            return inherited_chain
+
+    legacy = getattr(parent_agent, "_fallback_model", None)
+    if isinstance(legacy, dict) and legacy.get("provider") and legacy.get("model"):
+        return dict(legacy)
+
+    return None
+
+
 def _build_child_progress_callback(task_index: int, parent_agent, task_count: int = 1) -> Optional[callable]:
     """Build a callback that relays child agent tool calls to the parent display.
 
@@ -345,6 +372,8 @@ def _build_child_agent(
     except Exception as exc:
         logger.debug("Could not load delegation reasoning_effort: %s", exc)
 
+    child_fallback_model = _inherit_parent_fallback_model(parent_agent)
+
     child = AIAgent(
         base_url=effective_base_url,
         api_key=effective_api_key,
@@ -374,6 +403,7 @@ def _build_child_agent(
         provider_sort=parent_agent.provider_sort,
         tool_progress_callback=child_progress_cb,
         iteration_budget=None,  # fresh budget per subagent
+        fallback_model=child_fallback_model,
     )
     child._print_fn = getattr(parent_agent, '_print_fn', None)
     # Set delegation depth so children can't spawn grandchildren
